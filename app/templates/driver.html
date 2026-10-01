@@ -1,0 +1,827 @@
+{% extends "base.html" %}
+
+{% block title %}Modo Chofer | Trackeo de Itinerario de Bus{% endblock %}
+
+{% block extra_head %}
+<!-- HTML5 QR Code Scanner para escaneo directo con la cámara del celular -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  /* Personalización extra para la vista móvil del chofer */
+  .driver-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-surface);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+  }
+  .driver-gps-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .gps-good { color: #34d399; }
+  .gps-warn { color: #fbbf24; }
+  .gps-bad { color: #f87171; }
+  #reader {
+    width: 100%;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: #000;
+  }
+  #reader video {
+    border-radius: var(--radius-md);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="driver-shell">
+
+  <!-- Estado Superior Móvil -->
+  <div class="driver-header">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <span style="font-size: 1.4rem;">🚌</span>
+      <div>
+        <div style="font-weight: 700; font-size: 0.95rem;" id="headerBusTitle">Modo Chofer</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);" id="headerSubTitle">{{ terminal }}</div>
+      </div>
+    </div>
+    <div id="gpsIndicator" class="driver-gps-status gps-warn">
+      <span class="lan-ip-dot" style="background: currentColor;"></span>
+      <span id="gpsStatusText">GPS Listo</span>
+    </div>
+  </div>
+
+  <!-- ==================================================== -->
+  <!-- VISTA 1: FORMULARIO DE SALIDA (ESCANEO DE QR SALIDA) -->
+  <!-- ==================================================== -->
+  <div id="viewStart" class="card" style="display: none;">
+    <div style="text-align: center; margin-bottom: 1.5rem;">
+      <div style="width: 64px; height: 64px; background: rgba(37,99,235,0.2); border: 1px solid rgba(59,130,246,0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 0.75rem;">
+        🚦
+      </div>
+      <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff;">Registro de Salida</h2>
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0.25rem;">
+        Punto de Partida: <strong style="color: #60a5fa;" id="startTerminalName">{{ terminal }}</strong>
+      </p>
+    </div>
+
+    {% if user %}
+      <div style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.2rem;">🧑‍✈️</span>
+          <div>
+            <div style="font-weight: 700; color: #34d399; font-size: 0.9rem;">{{ user.name }}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">
+              {% if user.pin %}Conductor Registrado (Legajo: {{ user.pin }}){% else %}{{ user.email }}{% endif %}
+            </div>
+          </div>
+        </div>
+        <a href="/logout?next=/driver" style="font-size: 0.75rem; color: #f87171; text-decoration: none; font-weight: 600;">Cambiar</a>
+      </div>
+    {% else %}
+      <div style="background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+        <div style="font-size: 0.82rem; color: #93c5fd;">
+          ¿Tienes código de chofer o Google?
+        </div>
+        <a href="/login?next=/driver" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;">
+          Identificarme
+        </a>
+      </div>
+    {% endif %}
+
+    <form id="startForm" onsubmit="handleStartTrip(event)">
+      <div class="form-group">
+        <label class="form-label" for="busNumber">Número de Bus / Coche (* Requerido)</label>
+        <input 
+          type="text" 
+          id="busNumber" 
+          class="form-input" 
+          placeholder="Ej: Bus 42, Coche 105" 
+          required 
+          autofocus
+          style="font-size: 1.3rem; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.9rem;"
+        >
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="driverName">Nombre de Chofer</label>
+        <input 
+          type="text" 
+          id="driverName" 
+          class="form-input" 
+          placeholder="Nombre y Apellido" 
+          value="{{ user.name if user else '' }}"
+          {% if user %}readonly style="background: rgba(15,23,42,0.6); color: #93c5fd;"{% endif %}
+        >
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="lineName">Línea o Ramal (Opcional)</label>
+        <input type="text" id="lineName" class="form-input" placeholder="Ej: Línea 10 - Troncal A">
+      </div>
+
+      <div id="startError" style="display: none; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.88rem; margin-bottom: 1rem; text-align: center;">
+      </div>
+
+      <button type="submit" id="btnSubmitStart" class="btn btn-success btn-lg btn-block" style="box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);">
+        <i data-lucide="play" style="width: 22px; height: 22px;"></i>
+        <span>INICIAR SALIDA Y TRACKEO</span>
+      </button>
+
+      <p style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 1rem; line-height: 1.4;">
+        🔒 Al iniciar, el navegador solicitará permiso de ubicación. Se mantendrá la pantalla encendida para registrar con precisión el itinerario.
+      </p>
+    </form>
+  </div>
+
+
+  <!-- ==================================================== -->
+  <!-- VISTA 2: SEGUIMIENTO EN VIVO (DURANTE EL RECORRIDO) -->
+  <!-- ==================================================== -->
+  <div id="viewTracking" style="display: none;">
+    <div class="driver-hero">
+      <div class="radar-pulse">
+        📡
+      </div>
+      <div style="font-size: 0.8rem; font-weight: 700; color: #34d399; letter-spacing: 0.1em; text-transform: uppercase;">
+        ● EN TRANSMISIÓN DE ITINERARIO
+      </div>
+      <h2 style="font-size: 1.8rem; font-weight: 900; margin: 0.2rem 0;" id="activeBusLabel">BUS</h2>
+      <div style="font-size: 0.85rem; color: var(--text-muted);" id="activeOriginLabel">Origen: Terminal Salida</div>
+
+      <!-- Tablero de Telemetría -->
+      <div class="telemetry-board">
+        <div class="telemetry-tile">
+          <div class="telemetry-big" id="valSpeed">0.0</div>
+          <div class="telemetry-label">Velocidad (km/h)</div>
+        </div>
+        <div class="telemetry-tile">
+          <div class="telemetry-big" id="valDuration">00:00:00</div>
+          <div class="telemetry-label">Tiempo de Viaje</div>
+        </div>
+        <div class="telemetry-tile">
+          <div class="telemetry-big" id="valDistance">0.00</div>
+          <div class="telemetry-label">Distancia (km)</div>
+        </div>
+        <div class="telemetry-tile">
+          <div class="telemetry-big" id="valPoints">0</div>
+          <div class="telemetry-label">Puntos GPS</div>
+        </div>
+      </div>
+
+      <!-- Mini Mapa de Seguimiento -->
+      <div id="driverMap" style="height: 200px; width: 100%; border-radius: var(--radius-md); margin-bottom: 1.25rem; border: 1px solid var(--border-color);"></div>
+
+      <!-- Botones de Acción de Llegada -->
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <button type="button" class="btn btn-primary btn-lg btn-block" onclick="openQRArrivalScanner()">
+          <i data-lucide="scan-line" style="width: 22px; height: 22px;"></i>
+          <span>ESCANEAR QR DE LLEGADA</span>
+        </button>
+
+        <button type="button" class="btn btn-secondary btn-block" onclick="confirmManualArrival()" style="font-size: 0.88rem;">
+          <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i>
+          <span>Registrar Llegada Manualmente</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================================================== -->
+  <!-- VISTA 3: MODAL ESCANER QR DE LLEGADA                 -->
+  <!-- ==================================================== -->
+  <div id="viewScannerModal" class="card" style="display: none;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+      <h3 style="font-size: 1.1rem; font-weight: 700;">Escanear QR de Llegada</h3>
+      <button class="btn btn-secondary" onclick="closeQRArrivalScanner()" style="padding: 0.4rem 0.8rem;">Cerrar</button>
+    </div>
+    
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+      Apunta la cámara al cartel del <strong>QR DE LLEGADA</strong> ubicado en la terminal de destino.
+    </p>
+
+    <div id="reader"></div>
+
+    <div style="margin-top: 1rem; text-align: center;">
+      <button class="btn btn-secondary btn-block" onclick="closeQRArrivalScanner()">Cancelar Escaneo</button>
+    </div>
+  </div>
+
+
+  <!-- ==================================================== -->
+  <!-- VISTA 4: RECORRIDO COMPLETADO CON ÉXITO              -->
+  <!-- ==================================================== -->
+  <div id="viewCompleted" class="card" style="display: none; text-align: center; padding: 2rem 1.25rem;">
+    <div style="width: 72px; height: 72px; background: rgba(16,185,129,0.2); border: 2px solid #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; margin: 0 auto 1rem;">
+      🏁
+    </div>
+
+    <h2 style="font-size: 1.6rem; font-weight: 900; color: #fff;">¡Itinerario Finalizado!</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+      El trazado Shapefile ha sido generado y almacenado en el servidor.
+    </p>
+
+    <!-- Resumen del Viaje -->
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin: 1.5rem 0; text-align: left;">
+      <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+        <span style="color: var(--text-muted);">Bus:</span>
+        <strong id="resBus" style="color: #60a5fa;">-</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+        <span style="color: var(--text-muted);">Hora Salida:</span>
+        <strong id="resStart">-</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+        <span style="color: var(--text-muted);">Hora Llegada:</span>
+        <strong id="resEnd">-</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+        <span style="color: var(--text-muted);">Duración Total:</span>
+        <strong id="resDuration" style="color: #34d399;">-</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+        <span style="color: var(--text-muted);">Distancia Recorrida:</span>
+        <strong id="resDistance">-</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Velocidad Media:</span>
+        <strong id="resSpeed">-</strong>
+      </div>
+    </div>
+
+    <!-- Botones de Descarga y Acciones -->
+    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+      <a id="btnDownloadShp" href="#" class="btn btn-success btn-lg btn-block" style="text-decoration: none;">
+        <i data-lucide="download" style="width: 20px; height: 20px;"></i>
+        <span>DESCARGAR SHAPEFILE (.ZIP)</span>
+      </a>
+
+      <a id="btnViewItinerary" href="#" class="btn btn-primary btn-block" style="text-decoration: none;">
+        <i data-lucide="map" style="width: 18px; height: 18px;"></i>
+        <span>Ver Trazado Completo en Mapa</span>
+      </a>
+
+      <button type="button" class="btn btn-secondary btn-block" onclick="resetToNewTrip()">
+        <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+        <span>Iniciar Nuevo Servicio de Bus</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Variables de Estado
+  const URL_PARAMS = new URLSearchParams(window.location.search);
+  const ACTION_PARAM = URL_PARAMS.get('action') || 'salida';
+  const CODE_PARAM = URL_PARAMS.get('code') || '';
+  const TERMINAL_PARAM = URL_PARAMS.get('terminal') || '';
+
+  let activeSession = null;
+  let watchPositionId = null;
+  let wakeLockSentinel = null;
+  let durationTimer = null;
+  let pendingCoordinates = [];
+  let isSendingBatch = false;
+  let driverMap = null;
+  let driverMarker = null;
+  let driverPolyline = null;
+  let html5QrScanner = null;
+
+  // Clave de LocalStorage
+  const STORAGE_KEY = 'ACTIVE_BUS_TRACK_SESSION';
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initApp();
+  });
+
+  function initApp() {
+    // Verificar si hay una sesión guardada previamente
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        activeSession = JSON.parse(saved);
+      } catch (e) {
+        localStorage.removeItem(STORAGE_KEY);
+        activeSession = null;
+      }
+    }
+
+    // Si la URL es de tipo 'llegada' y hay una sesión activa, procesamos la llegada directamente
+    if (ACTION_PARAM === 'llegada' && activeSession && activeSession.status === 'active') {
+      showCompletionFlow(TERMINAL_PARAM || "Terminal Llegada");
+      return;
+    }
+
+    if (activeSession && activeSession.status === 'active') {
+      // Reanudar sesión activa
+      resumeActiveTracking();
+    } else {
+      // Mostrar pantalla de inicio de salida
+      showStartView();
+    }
+  }
+
+  function showStartView() {
+    document.getElementById("viewStart").style.display = "block";
+    document.getElementById("viewTracking").style.display = "none";
+    document.getElementById("viewCompleted").style.display = "none";
+    document.getElementById("viewScannerModal").style.display = "none";
+
+    if (TERMINAL_PARAM) {
+      document.getElementById("startTerminalName").innerText = TERMINAL_PARAM;
+    }
+    document.getElementById("busNumber").focus();
+  }
+
+  // ==========================================
+  // INICIAR SERVICIO Y TRACKEO
+  // ==========================================
+  async function handleStartTrip(e) {
+    e.preventDefault();
+    const busNum = document.getElementById("busNumber").value.trim();
+    const driver = document.getElementById("driverName").value.trim() || "Chofer";
+    const line = document.getElementById("lineName").value.trim() || "Línea Principal";
+    const origin = TERMINAL_PARAM || "Terminal de Salida";
+
+    if (!busNum) {
+      showStartError("Por favor ingrese el número de bus.");
+      return;
+    }
+
+    const btn = document.getElementById("btnSubmitStart");
+    btn.disabled = true;
+    btn.innerHTML = `<span>Obteniendo GPS e Iniciando...</span>`;
+
+    // 1. Obtener primera posición GPS para asegurar permisos
+    if (!navigator.geolocation) {
+      showStartError("Este navegador o dispositivo no soporta geolocalización GPS.");
+      btn.disabled = false;
+      btn.innerHTML = `<span>INICIAR SALIDA Y TRACKEO</span>`;
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const initPoint = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            altitude: pos.coords.altitude,
+            speed_kmh: (pos.coords.speed && pos.coords.speed > 0) ? (pos.coords.speed * 3.6) : 0.0,
+            accuracy: pos.coords.accuracy,
+            heading: pos.coords.heading,
+            timestamp: new Date().toISOString()
+          };
+
+          // Llamar al API para iniciar el servicio
+          const resp = await fetch("/api/services/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              bus_number: busNum,
+              driver_name: driver,
+              line_name: line,
+              origin_name: origin,
+              checkpoint_code: CODE_PARAM,
+              initial_location: initPoint
+            })
+          });
+
+          const data = await resp.json();
+          if (!resp.ok || !data.success) {
+            throw new Error(data.detail || data.message || "Error al iniciar en el servidor");
+          }
+
+          // Guardar sesión en memoria y localStorage
+          activeSession = {
+            service_id: data.service_id,
+            bus_number: data.bus_number,
+            driver_name: driver,
+            line_name: line,
+            origin_name: origin,
+            start_time: data.start_time,
+            status: "active",
+            points_count: 1,
+            total_distance_km: 0.0,
+            coordinates_trail: [[initPoint.latitude, initPoint.longitude]]
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession));
+
+          // Tono de inicio
+          window.SoundFX.startServiceTone();
+          if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+
+          // Activar tracking en vivo
+          resumeActiveTracking();
+
+        } catch (err) {
+          showStartError(`Error: ${err.message}`);
+          btn.disabled = false;
+          btn.innerHTML = `<span>INICIAR SALIDA Y TRACKEO</span>`;
+        }
+      },
+      (geoErr) => {
+        let msg = "No se pudo obtener la posición GPS. ";
+        if (geoErr.code === 1) msg += "Permiso de ubicación denegado. Habilite el GPS en el navegador.";
+        else if (geoErr.code === 2) msg += "Posición no disponible. Verifique que el GPS esté activo.";
+        else if (geoErr.code === 3) msg += "Tiempo de espera agotado al conectar con el GPS.";
+        showStartError(msg);
+        btn.disabled = false;
+        btn.innerHTML = `<span>INICIAR SALIDA Y TRACKEO</span>`;
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  }
+
+  function showStartError(msg) {
+    const el = document.getElementById("startError");
+    el.style.display = "block";
+    el.innerText = msg;
+  }
+
+  // ==========================================
+  // REANUDAR Y CONTROLAR TRACKING EN VIVO
+  // ==========================================
+  function resumeActiveTracking() {
+    document.getElementById("viewStart").style.display = "none";
+    document.getElementById("viewTracking").style.display = "block";
+    document.getElementById("viewCompleted").style.display = "none";
+    document.getElementById("viewScannerModal").style.display = "none";
+
+    document.getElementById("activeBusLabel").innerText = `BUS ${activeSession.bus_number}`;
+    document.getElementById("activeOriginLabel").innerText = `Salida: ${activeSession.origin_name} (${formatTimeOnly(activeSession.start_time)})`;
+    document.getElementById("headerBusTitle").innerText = `Bus ${activeSession.bus_number}`;
+    document.getElementById("headerSubTitle").innerText = "Recorrido en progreso";
+
+    // Solicitar WakeLock (evita que la pantalla del móvil se apague y corte el GPS)
+    requestWakeLock();
+
+    // Iniciar Mapa de chofer si no está inicializado
+    initDriverMap();
+
+    // Iniciar temporizador de duración
+    startDurationTimer();
+
+    // Iniciar seguimiento continuo de GPS
+    startGPSWatcher();
+  }
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        console.log("WakeLock de pantalla activado con éxito.");
+        document.addEventListener('visibilitychange', async () => {
+          if (wakeLockSentinel !== null && document.visibilityState === 'visible') {
+            wakeLockSentinel = await navigator.wakeLock.request('screen');
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("WakeLock no disponible o bloqueado por el sistema", e);
+    }
+  }
+
+  function initDriverMap() {
+    if (driverMap) return;
+    setTimeout(() => {
+      const defaultCoord = (activeSession.coordinates_trail && activeSession.coordinates_trail.length > 0)
+        ? activeSession.coordinates_trail[activeSession.coordinates_trail.length - 1]
+        : [-25.2867, -57.6470]; // Default fallback Asuncion
+
+      driverMap = L.map('driverMap', { zoomControl: false }).setView(defaultCoord, 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(driverMap);
+
+      const busIcon = L.divIcon({
+        className: 'bus-marker-div',
+        html: `<div style="background:#2563eb; color:white; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.2rem; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4);">🚌</div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+
+      driverMarker = L.marker(defaultCoord, { icon: busIcon }).addTo(driverMap);
+      driverPolyline = L.polyline(activeSession.coordinates_trail || [], { color: '#3b82f6', weight: 5, opacity: 0.8 }).addTo(driverMap);
+    }, 150);
+  }
+
+  function startDurationTimer() {
+    if (durationTimer) clearInterval(durationTimer);
+    updateDurationDisplay();
+    durationTimer = setInterval(updateDurationDisplay, 1000);
+  }
+
+  function updateDurationDisplay() {
+    if (!activeSession || !activeSession.start_time) return;
+    const start = new Date(activeSession.start_time);
+    const now = new Date();
+    const diffSec = Math.max(0, Math.floor((now - start) / 1000));
+
+    const h = Math.floor(diffSec / 3600);
+    const m = Math.floor((diffSec % 3600) / 60);
+    const s = diffSec % 60;
+
+    const formatted = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    document.getElementById("valDuration").innerText = formatted;
+  }
+
+  function startGPSWatcher() {
+    if (watchPositionId) {
+      navigator.geolocation.clearWatch(watchPositionId);
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 10000
+    };
+
+    watchPositionId = navigator.geolocation.watchPosition(
+      (pos) => handleNewGPSReading(pos),
+      (err) => handleGPSError(err),
+      options
+    );
+  }
+
+  function handleNewGPSReading(pos) {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    const alt = pos.coords.altitude || 0;
+    const spd = (pos.coords.speed && pos.coords.speed > 0) ? (pos.coords.speed * 3.6) : 0.0;
+    const acc = pos.coords.accuracy;
+    const hdg = pos.coords.heading;
+    const nowIso = new Date().toISOString();
+
+    // Actualizar indicador de precisión GPS
+    const gpsEl = document.getElementById("gpsIndicator");
+    const gpsTxt = document.getElementById("gpsStatusText");
+    if (acc <= 10) {
+      gpsEl.className = "driver-gps-status gps-good";
+      gpsTxt.innerText = `GPS Óptimo (±${Math.round(acc)}m)`;
+    } else if (acc <= 30) {
+      gpsEl.className = "driver-gps-status gps-warn";
+      gpsTxt.innerText = `GPS Bueno (±${Math.round(acc)}m)`;
+    } else {
+      gpsEl.className = "driver-gps-status gps-bad";
+      gpsTxt.innerText = `GPS Débil (±${Math.round(acc)}m)`;
+    }
+
+    // Actualizar velocímetro en pantalla
+    document.getElementById("valSpeed").innerText = spd.toFixed(1);
+
+    // Actualizar mapa
+    if (driverMap && driverMarker) {
+      const newPos = [lat, lon];
+      driverMarker.setLatLng(newPos);
+      driverMap.panTo(newPos);
+      if (driverPolyline) driverPolyline.addLatLng(newPos);
+    }
+
+    // Agregar a la cola de coordenadas
+    const pt = {
+      latitude: lat,
+      longitude: lon,
+      altitude: alt,
+      speed_kmh: spd,
+      accuracy: acc,
+      heading: hdg,
+      timestamp: nowIso
+    };
+    pendingCoordinates.push(pt);
+
+    if (!activeSession.coordinates_trail) activeSession.coordinates_trail = [];
+    activeSession.coordinates_trail.push([lat, lon]);
+    activeSession.points_count = (activeSession.points_count || 0) + 1;
+    document.getElementById("valPoints").innerText = activeSession.points_count;
+
+    // Guardar en localStorage como resguardo offline
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession));
+
+    // Si acumulamos 2 o más puntos, o cada 5 segundos, enviamos al servidor
+    if (pendingCoordinates.length >= 2 && !isSendingBatch) {
+      flushCoordinatesQueue();
+    }
+  }
+
+  function handleGPSError(err) {
+    console.warn("GPS Warning:", err.message);
+    const gpsEl = document.getElementById("gpsIndicator");
+    const gpsTxt = document.getElementById("gpsStatusText");
+    gpsEl.className = "driver-gps-status gps-bad";
+    gpsTxt.innerText = "GPS Buscando Señal...";
+  }
+
+  async function flushCoordinatesQueue() {
+    if (pendingCoordinates.length === 0 || isSendingBatch || !activeSession) return;
+    isSendingBatch = true;
+    const batchToSend = [...pendingCoordinates];
+
+    try {
+      const resp = await fetch("/api/services/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: activeSession.service_id,
+          points: batchToSend
+        })
+      });
+
+      if (resp.ok) {
+        const res = await resp.json();
+        // Quitar de la cola los puntos ya enviados
+        pendingCoordinates.splice(0, batchToSend.length);
+        if (res.total_distance_km !== undefined) {
+          activeSession.total_distance_km = res.total_distance_km;
+          document.getElementById("valDistance").innerText = res.total_distance_km.toFixed(2);
+        }
+      }
+    } catch (e) {
+      console.warn("Fallo temporal de conexión (se acumula en buffer offline):", e);
+    } finally {
+      isSendingBatch = false;
+    }
+  }
+
+  // ==========================================
+  // FINALIZAR SERVICIO Y ESCANEAR QR LLEGADA
+  // ==========================================
+  function openQRArrivalScanner() {
+    document.getElementById("viewTracking").style.display = "none";
+    document.getElementById("viewScannerModal").style.display = "block";
+
+    setTimeout(() => {
+      html5QrScanner = new Html5Qrcode("reader");
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+      
+      html5QrScanner.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          // QR detectado
+          console.log("QR Escaneado:", decodedText);
+          html5QrScanner.stop().then(() => {
+            html5QrScanner = null;
+            document.getElementById("viewScannerModal").style.display = "none";
+            
+            // Extraer nombre del punto o procesar
+            let destName = "Terminal de Llegada";
+            try {
+              const url = new URL(decodedText);
+              destName = url.searchParams.get("terminal") || destName;
+            } catch(e) {}
+
+            showCompletionFlow(destName);
+          });
+        },
+        (error) => {
+          // Frame sin QR (normal)
+        }
+      ).catch(err => {
+        alert("No se pudo iniciar la cámara: " + err);
+        closeQRArrivalScanner();
+      });
+    }, 100);
+  }
+
+  function closeQRArrivalScanner() {
+    if (html5QrScanner) {
+      html5QrScanner.stop().catch(() => {}).finally(() => {
+        html5QrScanner = null;
+        document.getElementById("viewScannerModal").style.display = "none";
+        document.getElementById("viewTracking").style.display = "block";
+      });
+    } else {
+      document.getElementById("viewScannerModal").style.display = "none";
+      document.getElementById("viewTracking").style.display = "block";
+    }
+  }
+
+  function confirmManualArrival() {
+    const dest = prompt("Ingrese el nombre de la Terminal o Destino de Llegada:", TERMINAL_PARAM || "Terminal Llegada");
+    if (dest !== null) {
+      showCompletionFlow(dest || "Terminal Llegada");
+    }
+  }
+
+  async function showCompletionFlow(destinationName) {
+    if (!activeSession) {
+      alert("No hay ningún servicio activo para finalizar.");
+      showStartView();
+      return;
+    }
+
+    // Detener watcher de GPS y WakeLock
+    if (watchPositionId) {
+      navigator.geolocation.clearWatch(watchPositionId);
+      watchPositionId = null;
+    }
+    if (durationTimer) {
+      clearInterval(durationTimer);
+      durationTimer = null;
+    }
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release().catch(() => {});
+      wakeLockSentinel = null;
+    }
+
+    // Enviar puntos pendientes primero
+    if (pendingCoordinates.length > 0) {
+      await flushCoordinatesQueue();
+    }
+
+    // Obtener última coordenada GPS precisa
+    let finalPoint = null;
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 5000 });
+      });
+      finalPoint = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        altitude: pos.coords.altitude,
+        speed_kmh: 0.0,
+        accuracy: pos.coords.accuracy,
+        heading: pos.coords.heading,
+        timestamp: new Date().toISOString()
+      };
+    } catch(e) {}
+
+    // Enviar finalización al backend
+    try {
+      const resp = await fetch("/api/services/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: activeSession.service_id,
+          destination_name: destinationName,
+          checkpoint_code: CODE_PARAM,
+          final_location: finalPoint,
+          timestamp: new Date().toISOString()
+        })
+      });
+
+      const resData = await resp.json();
+      if (!resp.ok || !resData.success) {
+        throw new Error(resData.detail || resData.message || "Error al finalizar");
+      }
+
+      // Tono y vibración de victoria
+      window.SoundFX.finishServiceTone();
+      if (navigator.vibrate) navigator.vibrate([150, 100, 300, 100, 400]);
+
+      // Mostrar pantalla de completado
+      document.getElementById("viewStart").style.display = "none";
+      document.getElementById("viewTracking").style.display = "none";
+      document.getElementById("viewScannerModal").style.display = "none";
+      document.getElementById("viewCompleted").style.display = "block";
+
+      document.getElementById("resBus").innerText = activeSession.bus_number;
+      document.getElementById("resStart").innerText = formatTimeOnly(resData.start_time);
+      document.getElementById("resEnd").innerText = formatTimeOnly(resData.end_time);
+      document.getElementById("resDuration").innerText = resData.duration_formatted;
+      document.getElementById("resDistance").innerText = `${resData.total_distance_km} km`;
+      document.getElementById("resSpeed").innerText = `${resData.avg_speed_kmh} km/h`;
+
+      // Configurar enlaces de descarga directa
+      document.getElementById("btnDownloadShp").href = `/api/services/${activeSession.service_id}/shapefile`;
+      document.getElementById("btnViewItinerary").href = `/itinerario/${activeSession.service_id}`;
+
+      // Limpiar sesión activa de localStorage
+      localStorage.removeItem(STORAGE_KEY);
+      activeSession = null;
+
+    } catch (err) {
+      alert("Error al registrar llegada: " + err.message);
+      // Reanudar tracking si hubo fallo
+      resumeActiveTracking();
+    }
+  }
+
+  function resetToNewTrip() {
+    localStorage.removeItem(STORAGE_KEY);
+    activeSession = null;
+    window.location.href = "/driver";
+  }
+
+  function formatTimeOnly(isoString) {
+    if (!isoString) return "-";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+      return isoString;
+    }
+  }
+</script>
+{% endblock %}

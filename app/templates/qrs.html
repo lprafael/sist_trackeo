@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Generador e Impresión de Códigos QR | Trackeo de Buses{% endblock %}
+
+{% block extra_head %}
+<style>
+  .qr-card-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+  }
+  .qr-poster {
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: var(--radius-lg);
+    padding: 2rem 1.5rem;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
+    border: 3px solid #e2e8f0;
+    position: relative;
+    overflow: hidden;
+  }
+  .qr-poster.salida {
+    border-top: 8px solid #10b981;
+  }
+  .qr-poster.llegada {
+    border-top: 8px solid #ef4444;
+  }
+  .qr-badge-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.4rem 1rem;
+    border-radius: var(--radius-full);
+    margin-bottom: 0.75rem;
+  }
+  .badge-salida {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+  .badge-llegada {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+  .qr-image-wrapper {
+    background: #ffffff;
+    padding: 1rem;
+    border: 2px dashed #cbd5e1;
+    border-radius: var(--radius-md);
+    display: inline-block;
+    margin: 1rem 0;
+  }
+  .qr-image-wrapper img, .qr-image-wrapper svg {
+    width: 220px;
+    height: 220px;
+    display: block;
+  }
+  .qr-instructions {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    padding: 0.85rem;
+    font-size: 0.88rem;
+    color: #475569;
+    line-height: 1.4;
+    text-align: left;
+    margin-top: 1rem;
+  }
+  @media print {
+    .qr-card-container {
+      display: block !important;
+    }
+    .qr-poster {
+      page-break-after: always;
+      border: 3px solid #000 !important;
+      margin-bottom: 2rem !important;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="no-print">
+  <!-- Encabezado de la página -->
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+    <div>
+      <h1 style="font-size: 1.75rem; font-weight: 800;">Códigos QR de Control</h1>
+      <p style="color: var(--text-muted); font-size: 0.95rem;">
+        Imprime y coloca estos carteles en los puntos de salida y llegada para que los choferes los escaneen con su celular.
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem;">
+      <button class="btn btn-primary" onclick="window.print()">
+        <i data-lucide="printer" style="width: 18px; height: 18px;"></i>
+        <span>Imprimir Carteles QR</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Panel de Configuración de URL del Servidor -->
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-title">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <i data-lucide="settings-2" style="width: 20px; height: 20px; color: #60a5fa;"></i>
+        <span>Configuración de Dominio / IP del Servidor</span>
+      </div>
+    </div>
+    
+    <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1rem;">
+      Los celulares deben poder acceder a esta dirección en la red Wi-Fi o mediante tu dominio público. Puedes ajustar la IP o nombre de host aquí para regenerar los QRs en tiempo real:
+    </p>
+
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+      <input 
+        type="text" 
+        id="inputServerBase" 
+        class="form-input" 
+        style="flex: 1; min-width: 280px; font-weight: 600;" 
+        value="http://{{ lan_ip }}:8000"
+      >
+      <button class="btn btn-secondary" onclick="updateQRs()">
+        <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+        <span>Actualizar Códigos</span>
+      </button>
+      <button class="btn btn-secondary" onclick="setLocalhost()">
+        <span>Localhost (Pruebas PC)</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- CONTENEDOR DE CARTELES QR (IMPRIMIBLE)     -->
+<!-- ========================================== -->
+<div class="qr-card-container print-area">
+
+  <!-- ========================================== -->
+  <!-- CARTEL 1: QR DE SALIDA                     -->
+  <!-- ========================================== -->
+  <div class="qr-poster salida">
+    <div class="qr-badge-title badge-salida">
+      <span>● PUNTO DE SALIDA / PARTIDA</span>
+    </div>
+
+    <h2 style="font-size: 1.6rem; font-weight: 900; color: #0f172a; margin-top: 0.25rem;">
+      INICIO DE ITINERARIO
+    </h2>
+    <div style="font-size: 1.05rem; font-weight: 700; color: #059669;" id="labelTerminalSalida">
+      Terminal de Salida
+    </div>
+
+    <!-- Imagen QR -->
+    <div class="qr-image-wrapper">
+      <img id="qrImgSalida" src="" alt="QR Salida">
+    </div>
+
+    <div class="qr-instructions">
+      <strong style="color: #0f172a; display: block; margin-bottom: 0.35rem;">📋 Instrucciones para el Chofer:</strong>
+      <ol style="margin-left: 1.25rem; font-size: 0.85rem; line-height: 1.5;">
+        <li>Abre la cámara de tu celular y <strong>escanea este código QR</strong> antes de partir.</li>
+        <li>Ingresa tu <strong>Número de Bus / Coche</strong> en la pantalla.</li>
+        <li>Presiona <strong>"INICIAR SALIDA"</strong>: El sistema registrará el horario exacto de partida y comenzará el seguimiento GPS del recorrido.</li>
+      </ol>
+    </div>
+
+    <div class="no-print" style="margin-top: 1.25rem; display: flex; gap: 0.5rem; justify-content: center;">
+      <a id="btnTestSalida" href="#" target="_blank" class="btn btn-success" style="font-size: 0.85rem; padding: 0.5rem 1rem;">
+        <i data-lucide="external-link" style="width: 15px; height: 15px;"></i>
+        <span>Probar URL de Salida</span>
+      </a>
+      <a id="btnDownloadSalida" href="#" download="qr_salida_buses.svg" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.5rem 1rem;">
+        <i data-lucide="download" style="width: 15px; height: 15px;"></i>
+        <span>Descargar QR</span>
+      </a>
+    </div>
+  </div>
+
+
+  <!-- ========================================== -->
+  <!-- CARTEL 2: QR DE LLEGADA                    -->
+  <!-- ========================================== -->
+  <div class="qr-poster llegada">
+    <div class="qr-badge-title badge-llegada">
+      <span>● PUNTO DE LLEGADA / DESTINO</span>
+    </div>
+
+    <h2 style="font-size: 1.6rem; font-weight: 900; color: #0f172a; margin-top: 0.25rem;">
+      FIN DE ITINERARIO
+    </h2>
+    <div style="font-size: 1.05rem; font-weight: 700; color: #dc2626;" id="labelTerminalLlegada">
+      Terminal de Llegada
+    </div>
+
+    <!-- Imagen QR -->
+    <div class="qr-image-wrapper">
+      <img id="qrImgLlegada" src="" alt="QR Llegada">
+    </div>
+
+    <div class="qr-instructions">
+      <strong style="color: #0f172a; display: block; margin-bottom: 0.35rem;">🏁 Instrucciones para el Chofer:</strong>
+      <ol style="margin-left: 1.25rem; font-size: 0.85rem; line-height: 1.5;">
+        <li>Al arribar a la terminal de destino, <strong>escanea este código QR</strong>.</li>
+        <li>El sistema detendrá automáticamente el seguimiento GPS.</li>
+        <li>Se registrará el <strong>horario de llegada exacto</strong>, se calculará el tiempo total y se generará el <strong>archivo Shape (.shp)</strong> del trazado.</li>
+      </ol>
+    </div>
+
+    <div class="no-print" style="margin-top: 1.25rem; display: flex; gap: 0.5rem; justify-content: center;">
+      <a id="btnTestLlegada" href="#" target="_blank" class="btn btn-danger" style="font-size: 0.85rem; padding: 0.5rem 1rem;">
+        <i data-lucide="external-link" style="width: 15px; height: 15px;"></i>
+        <span>Probar URL de Llegada</span>
+      </a>
+      <a id="btnDownloadLlegada" href="#" download="qr_llegada_buses.svg" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.5rem 1rem;">
+        <i data-lucide="download" style="width: 15px; height: 15px;"></i>
+        <span>Descargar QR</span>
+      </a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    updateQRs();
+  });
+
+  function setLocalhost() {
+    document.getElementById("inputServerBase").value = "http://localhost:8000";
+    updateQRs();
+  }
+
+  function updateQRs() {
+    const baseUrl = document.getElementById("inputServerBase").value.trim().replace(/\/$/, "");
+    
+    // URL de Salida
+    const urlSalida = `${baseUrl}/driver?action=salida&code=SALIDA_PRINCIPAL&terminal=Terminal+de+Salida`;
+    const qrSalidaApi = `/api/qr?data=${encodeURIComponent(urlSalida)}&format=svg&size=10`;
+    
+    document.getElementById("qrImgSalida").src = qrSalidaApi;
+    document.getElementById("btnTestSalida").href = urlSalida;
+    document.getElementById("btnDownloadSalida").href = qrSalidaApi;
+
+    // URL de Llegada
+    const urlLlegada = `${baseUrl}/driver?action=llegada&code=LLEGADA_PRINCIPAL&terminal=Terminal+de+Llegada`;
+    const qrLlegadaApi = `/api/qr?data=${encodeURIComponent(urlLlegada)}&format=svg&size=10`;
+
+    document.getElementById("qrImgLlegada").src = qrLlegadaApi;
+    document.getElementById("btnTestLlegada").href = urlLlegada;
+    document.getElementById("btnDownloadLlegada").href = qrLlegadaApi;
+
+    if (window.lucide) lucide.createIcons();
+  }
+</script>
+{% endblock %}

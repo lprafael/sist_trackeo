@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{% block title %}Sistema de Trackeo e Itinerarios de Buses{% endblock %}</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Estilos Custom -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+  <!-- Navegación Superior -->
+  <header class="navbar">
+    <a href="/admin" class="nav-brand">
+      <div class="nav-logo-icon">🚍</div>
+      <div>
+        <div style="font-size: 1.05rem; font-weight: 800; line-height: 1.1;">TrackItinerarios</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">Generador de Shapes GPS</div>
+      </div>
+    </a>
+
+    <ul class="nav-links">
+      <li>
+        <a href="/admin" class="nav-link {% if page == 'admin' %}active{% endif %}">
+          <i data-lucide="layout-dashboard" style="width: 17px; height: 17px;"></i>
+          <span>Monitoreo & Itinerarios</span>
+        </a>
+      </li>
+      <li>
+        <a href="/qrs" class="nav-link {% if page == 'qrs' %}active{% endif %}">
+          <i data-lucide="qr-code" style="width: 17px; height: 17px;"></i>
+          <span>Códigos QR</span>
+        </a>
+      </li>
+      <li>
+        <a href="/driver" class="nav-link {% if page == 'driver' %}active{% endif %}" target="_blank">
+          <i data-lucide="smartphone" style="width: 17px; height: 17px;"></i>
+          <span>Modo Chofer (Móvil)</span>
+        </a>
+      </li>
+    </ul>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <div class="lan-ip-badge no-print" title="Dirección IP de tu red local para conectar celulares">
+        <div class="lan-ip-dot"></div>
+        <span>IP: {{ lan_ip }}</span>
+      </div>
+
+      {% if user %}
+        <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); border: 1px solid var(--border-color); padding: 0.3rem 0.65rem; border-radius: var(--radius-sm);">
+          {% if user.avatar %}
+            <img src="{{ user.avatar }}" alt="{{ user.name }}" style="width: 24px; height: 24px; border-radius: 50%;">
+          {% else %}
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: white;">
+              {{ user.name[:1] | upper }}
+            </div>
+          {% endif %}
+          <div style="font-size: 0.82rem; font-weight: 600; line-height: 1.1;">
+            <div>{{ user.name }}</div>
+            <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">
+              {% if user.role == 'admin' %}Administrador{% else %}Chofer ({{ user.pin or 'App' }}){% endif %}
+            </div>
+          </div>
+          <a href="/logout" title="Cerrar sesión" style="color: #f87171; text-decoration: none; margin-left: 0.35rem; display: flex; align-items: center;">
+            <i data-lucide="log-out" style="width: 15px; height: 15px;"></i>
+          </a>
+        </div>
+      {% else %}
+        <a href="/login" class="btn btn-secondary no-print" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
+          <i data-lucide="log-in" style="width: 14px; height: 14px;"></i>
+          <span>Ingresar</span>
+        </a>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Contenido Principal -->
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Script de Utilidades de Audio y Lucide -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+    });
+
+    // Sintetizador de tonos de audio Web Audio API (para feedback en el celular del chofer)
+    window.SoundFX = {
+      ctx: null,
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+      },
+      beep(freq = 600, duration = 150, type = 'sine') {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + (duration / 1000));
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + (duration / 1000));
+        } catch (e) {
+          console.warn("Audio not supported or blocked", e);
+        }
+      },
+      startServiceTone() {
+        this.beep(523.25, 120); // Do
+        setTimeout(() => this.beep(659.25, 120), 120); // Mi
+        setTimeout(() => this.beep(783.99, 250), 240); // Sol
+      },
+      finishServiceTone() {
+        this.beep(783.99, 120);
+        setTimeout(() => this.beep(659.25, 120), 120);
+        setTimeout(() => this.beep(1046.50, 400), 240);
+      },
+      pingTone() {
+        this.beep(880, 80, 'triangle');
+      }
+    };
+  </script>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

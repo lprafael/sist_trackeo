@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle de Itinerario | Bus {{ service.bus_number }}{% endblock %}
+
+{% block extra_head %}
+<!-- Chart.js para perfil de velocidad y elevación -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 900px) {
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid rgba(39, 56, 99, 0.5);
+    font-size: 0.92rem;
+  }
+  .metric-row:last-child {
+    border-bottom: none;
+  }
+  .metric-label {
+    color: var(--text-muted);
+  }
+  .metric-value {
+    font-weight: 700;
+    color: var(--text-main);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Barra superior de navegación y título -->
+<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+  <div>
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <a href="/admin" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+        <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+        <span>Volver al Panel</span>
+      </a>
+      <h1 style="font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em;">
+        Itinerario Bus <span style="color: #60a5fa;">{{ service.bus_number }}</span>
+      </h1>
+      {% if service.status == 'completed' %}
+        <span class="badge badge-completed">🏁 Completado</span>
+      {% elif service.status == 'active' %}
+        <span class="badge badge-active">🟢 En Ruta</span>
+      {% else %}
+        <span class="badge badge-cancelled">❌ Cancelado</span>
+      {% endif %}
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+      ID de Servicio: <code style="color: #93c5fd;">{{ service.id }}</code> | Línea: {{ service.line_name or 'General' }}
+    </p>
+  </div>
+
+  <!-- Botones de Descarga de Shapes -->
+  <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+    <a href="/api/services/{{ service.id }}/shapefile" class="btn btn-success" title="Descargar paquete ESRI Shapefile con proyección WGS84">
+      <i data-lucide="file-archive" style="width: 18px; height: 18px;"></i>
+      <span>Descargar Shapefile (.ZIP)</span>
+    </a>
+    <a href="/api/services/{{ service.id }}/geojson" class="btn btn-secondary" title="Descargar GeoJSON">
+      <span>GeoJSON</span>
+    </a>
+    <a href="/api/services/{{ service.id }}/kml" class="btn btn-secondary" title="Descargar KML Google Earth">
+      <span>KML</span>
+    </a>
+    <a href="/api/services/{{ service.id }}/gpx" class="btn btn-secondary" title="Descargar GPX">
+      <span>GPX</span>
+    </a>
+    <a href="/api/services/{{ service.id }}/csv" class="btn btn-secondary" title="Descargar CSV">
+      <span>CSV</span>
+    </a>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <!-- Columna Izquierda: Mapa del Trazado y Gráfico -->
+  <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    
+    <!-- Mapa de Trazado -->
+    <div class="card" style="padding: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+          <i data-lucide="map-pin" style="width: 18px; height: 18px; color: #3b82f6;"></i>
+          <span>Trazado del Itinerario Relevado</span>
+        </h3>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">{{ points_count }} waypoints</span>
+      </div>
+      <div id="detailMap" style="height: 480px; width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border-color);"></div>
+    </div>
+
+    <!-- Perfil de Velocidad -->
+    <div class="card">
+      <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+        <i data-lucide="activity" style="width: 18px; height: 18px; color: #10b981;"></i>
+        <span>Perfil de Velocidad a lo largo del Itinerario (km/h)</span>
+      </h3>
+      <div style="height: 220px; width: 100%;">
+        <canvas id="speedChart"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Columna Derecha: Tarjeta de Métricas y Horarios -->
+  <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+
+    <div class="card">
+      <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1rem; color: #fff;">
+        Ficha del Servicio
+      </h3>
+
+      <div class="metric-row">
+        <span class="metric-label">Número de Bus:</span>
+        <span class="metric-value" style="color: #60a5fa; font-size: 1.1rem;">{{ service.bus_number }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Chofer:</span>
+        <span class="metric-value">{{ service.driver_name or 'No especificado' }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Línea / Ramal:</span>
+        <span class="metric-value">{{ service.line_name or 'Principal' }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Punto de Origen:</span>
+        <span class="metric-value">{{ service.origin_name or 'Terminal Salida' }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Punto de Destino:</span>
+        <span class="metric-value">{{ service.destination_name or 'Terminal Llegada' }}</span>
+      </div>
+
+      <div style="margin: 1.25rem 0 0.75rem 0; padding-top: 0.75rem; border-top: 2px dashed var(--border-color);">
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: #93c5fd; letter-spacing: 0.05em; margin-bottom: 0.75rem;">
+          ⏱️ Cálculo de Horarios y Tiempos
+        </h4>
+      </div>
+
+      <div class="metric-row">
+        <span class="metric-label">Horario de Salida:</span>
+        <span class="metric-value" style="color: #34d399;" id="lblStartTime">{{ service.start_time }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Horario de Llegada:</span>
+        <span class="metric-value" style="color: #f87171;" id="lblEndTime">{{ service.end_time or 'En curso' }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Duración Total:</span>
+        <span class="metric-value" style="color: #fbbf24; font-size: 1.05rem;">{{ service.duration_formatted }}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Distancia Total:</span>
+        <span class="metric-value">{{ (service.total_distance_km or 0)|round(2) }} km</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Velocidad Promedio:</span>
+        <span class="metric-value">{{ (service.avg_speed_kmh or 0)|round(1) }} km/h</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Velocidad Máxima:</span>
+        <span class="metric-value">{{ (service.max_speed_kmh or 0)|round(1) }} km/h</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Puntos GPS Grabados:</span>
+        <span class="metric-value">{{ points_count }}</span>
+      </div>
+
+      <div style="margin-top: 1.5rem;">
+        <a href="/api/services/{{ service.id }}/shapefile" class="btn btn-success btn-block btn-lg" style="text-decoration: none;">
+          <i data-lucide="download" style="width: 20px; height: 20px;"></i>
+          <span>DESCARGAR SHAPEFILE</span>
+        </a>
+        <p style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 0.5rem;">
+          Incluye: .shp (Línea), .shx, .dbf, .prj (WGS84 EPSG:4326), .shp de puntos y metadatos.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const SERVICE_ID = "{{ service.id }}";
+  let detailMap = null;
+  let speedChart = null;
+
+  document.addEventListener("DOMContentLoaded", () => {
+    formatDateLabels();
+    loadItineraryGeometry();
+  });
+
+  function formatDateLabels() {
+    const sEl = document.getElementById("lblStartTime");
+    const eEl = document.getElementById("lblEndTime");
+    if (sEl && sEl.innerText) sEl.innerText = formatDateTimeFull(sEl.innerText);
+    if (eEl && eEl.innerText && eEl.innerText !== 'En curso') eEl.innerText = formatDateTimeFull(eEl.innerText);
+  }
+
+  function formatDateTimeFull(isoString) {
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (' + d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' }) + ')';
+    } catch(e) { return isoString; }
+  }
+
+  async function loadItineraryGeometry() {
+    try {
+      const resp = await fetch(`/api/services/${SERVICE_ID}`);
+      const data = await resp.json();
+      const points = data.points || [];
+
+      initMapWithPoints(points);
+      initSpeedChart(points);
+    } catch(e) {
+      console.error("Error al cargar puntos:", e);
+    }
+  }
+
+  function initMapWithPoints(points) {
+    detailMap = L.map('detailMap').setView([-25.2867, -57.6470], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(detailMap);
+
+    if (points.length === 0) return;
+
+    const latlngs = points.map(p => [p.latitude, p.longitude]);
+
+    // Trazado de ruta (Línea azul brillante)
+    const polyline = L.polyline(latlngs, {
+      color: '#2563eb',
+      weight: 6,
+      opacity: 0.85,
+      lineJoin: 'round'
+    }).addTo(detailMap);
+
+    // Marcador de Salida (Verde)
+    const startPoint = points[0];
+    const startIcon = L.divIcon({
+      className: 'start-marker',
+      html: `<div style="background:#10b981; color:white; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.1rem; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4);">🟢</div>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17]
+    });
+    L.marker([startPoint.latitude, startPoint.longitude], { icon: startIcon })
+      .addTo(detailMap)
+      .bindPopup(`<strong>Punto de Salida</strong><br>${startPoint.recorded_at}`);
+
+    // Marcador de Llegada (Rojo)
+    if (points.length > 1) {
+      const endPoint = points[points.length - 1];
+      const endIcon = L.divIcon({
+        className: 'end-marker',
+        html: `<div style="background:#ef4444; color:white; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.1rem; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4);">🏁</div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+      L.marker([endPoint.latitude, endPoint.longitude], { icon: endIcon })
+        .addTo(detailMap)
+        .bindPopup(`<strong>Punto de Llegada</strong><br>${endPoint.recorded_at}`);
+    }
+
+    // Ajustar vista para encuadrar todo el recorrido
+    detailMap.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+  }
+
+  function initSpeedChart(points) {
+    if (points.length === 0) return;
+    const ctx = document.getElementById('speedChart').getContext('2d');
+
+    const labels = points.map((p, i) => {
+      try {
+        const d = new Date(p.recorded_at);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch(e) {
+        return `#${i+1}`;
+      }
+    });
+
+    const speeds = points.map(p => (p.speed_kmh || 0).toFixed(1));
+
+    speedChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Velocidad (km/h)',
+          data: speeds,
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointRadius: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            display: false
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: { color: '#94a3b8' },
+            min: 0
+          }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,473 @@
+{% extends "base.html" %}
+
+{% block title %}Panel de Monitoreo e Itinerarios | Trackeo de Buses{% endblock %}
+
+{% block content %}
+<!-- Encabezado con Acciones Rápidas -->
+<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+  <div>
+    <h1 style="font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em;">Monitoreo en Vivo e Itinerarios</h1>
+    <p style="color: var(--text-muted); font-size: 0.95rem;">
+      Supervisión de servicios activos, trazados espaciales y descargas de Shapefiles.
+    </p>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+    <button class="btn btn-secondary" onclick="generateSimulatedRoute()">
+      <i data-lucide="sparkles" style="width: 17px; height: 17px; color: #fbbf24;"></i>
+      <span>Simular Recorrido Demo</span>
+    </button>
+
+    <a href="/qrs" class="btn btn-secondary">
+      <i data-lucide="qr-code" style="width: 17px; height: 17px;"></i>
+      <span>Ver QRs de Salida/Llegada</span>
+    </a>
+
+    <a href="/driver" target="_blank" class="btn btn-primary">
+      <i data-lucide="smartphone" style="width: 17px; height: 17px;"></i>
+      <span>Abrir Modo Chofer</span>
+    </a>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- KPI GRID (MÉTRICAS CLAVE)                  -->
+<!-- ========================================== -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-icon blue">
+      🚌
+    </div>
+    <div class="kpi-data">
+      <div class="kpi-value" id="kpiActiveBuses" style="color: #60a5fa;">0</div>
+      <div class="kpi-label">Buses en Ruta Ahora</div>
+    </div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-icon green">
+      🏁
+    </div>
+    <div class="kpi-data">
+      <div class="kpi-value" id="kpiCompletedServices" style="color: #34d399;">0</div>
+      <div class="kpi-label">Servicios Completados</div>
+    </div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-icon amber">
+      📏
+    </div>
+    <div class="kpi-data">
+      <div class="kpi-value" id="kpiTotalKm" style="color: #fbbf24;">0.0</div>
+      <div class="kpi-label">Kilómetros Relevados</div>
+    </div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-icon purple">
+      ⏱️
+    </div>
+    <div class="kpi-data">
+      <div class="kpi-value" id="kpiAvgDuration" style="color: #c084fc;">0m</div>
+      <div class="kpi-label">Duración Promedio</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- MAPA EN TIEMPO REAL                        -->
+<!-- ========================================== -->
+<div class="card" style="margin-bottom: 1.5rem;">
+  <div class="card-title">
+    <div style="display: flex; align-items: center; gap: 0.6rem;">
+      <i data-lucide="radar" style="width: 20px; height: 20px; color: #34d399;"></i>
+      <span>Mapa de Posicionamiento Satelital en Vivo</span>
+      <span class="badge badge-active" id="liveBusesBadge">0 Buses transmitiendo</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <button class="btn btn-secondary" onclick="fetchActiveServices(true)" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
+        <i data-lucide="rotate-cw" style="width: 14px; height: 14px;"></i>
+        <span>Actualizar</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="adminLiveMap" class="map-container"></div>
+</div>
+
+<!-- ========================================== -->
+<!-- TABLA DE HISTORIAL DE SERVICIOS Y SHAPES   -->
+<!-- ========================================== -->
+<div class="card">
+  <div class="card-title">
+    <div style="display: flex; align-items: center; gap: 0.6rem;">
+      <i data-lucide="route" style="width: 20px; height: 20px; color: #60a5fa;"></i>
+      <span>Historial de Itinerarios y Descarga de Shapes</span>
+    </div>
+
+    <!-- Filtros de Búsqueda -->
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <input 
+        type="text" 
+        id="filterBus" 
+        class="form-input" 
+        placeholder="Buscar por Bus..." 
+        style="padding: 0.4rem 0.75rem; font-size: 0.85rem; width: 170px;"
+        onkeyup="filterServicesTable()"
+      >
+      <select id="filterStatus" class="form-input" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; width: 140px;" onchange="filterServicesTable()">
+        <option value="">Todos los Estados</option>
+        <option value="active">En Ruta</option>
+        <option value="completed">Completados</option>
+        <option value="cancelled">Cancelados</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Estado</th>
+          <th>Bus / Coche</th>
+          <th>Línea / Chofer</th>
+          <th>Horario Salida</th>
+          <th>Horario Llegada</th>
+          <th>Tiempo Total</th>
+          <th>Distancia</th>
+          <th>Vel. Media</th>
+          <th>Puntos</th>
+          <th style="text-align: right;">Exportación de Shape</th>
+        </tr>
+      </thead>
+      <tbody id="servicesTableBody">
+        <tr>
+          <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+            Cargando itinerarios...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  let adminMap = null;
+  let activeBusMarkers = {};
+  let activeBusPolylines = {};
+  let autoRefreshInterval = null;
+  let allServicesCache = [];
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initAdminMap();
+    loadDashboardData();
+    // Auto-refrescar datos cada 5 segundos
+    autoRefreshInterval = setInterval(() => {
+      fetchActiveServices(false);
+    }, 5000);
+  });
+
+  function initAdminMap() {
+    // Coordenadas por defecto (Centro Asunción / Mercosur)
+    adminMap = L.map('adminLiveMap').setView([-25.2867, -57.6470], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(adminMap);
+  }
+
+  async function loadDashboardData() {
+    await Promise.all([
+      fetchActiveServices(true),
+      fetchServicesList()
+    ]);
+  }
+
+  // Cargar buses activos para el mapa
+  async function fetchActiveServices(fitBounds = false) {
+    try {
+      const resp = await fetch("/api/services/active");
+      const data = await resp.json();
+      const activeBuses = data.active_services || [];
+
+      document.getElementById("kpiActiveBuses").innerText = activeBuses.length;
+      document.getElementById("liveBusesBadge").innerText = `${activeBuses.length} ${activeBuses.length === 1 ? 'Bus' : 'Buses'} transmitiendo`;
+
+      // Limpiar marcadores viejos que ya no están activos
+      const currentActiveIds = new Set(activeBuses.map(b => b.id));
+      for (const id in activeBusMarkers) {
+        if (!currentActiveIds.has(id)) {
+          adminMap.removeLayer(activeBusMarkers[id]);
+          delete activeBusMarkers[id];
+          if (activeBusPolylines[id]) {
+            adminMap.removeLayer(activeBusPolylines[id]);
+            delete activeBusPolylines[id];
+          }
+        }
+      }
+
+      const bounds = [];
+
+      for (const bus of activeBuses) {
+        if (bus.last_lat && bus.last_lon) {
+          const pos = [bus.last_lat, bus.last_lon];
+          bounds.push(pos);
+
+          const popupContent = `
+            <div style="font-family: inherit; font-size: 0.9rem; min-width: 180px;">
+              <strong style="color: #2563eb; font-size: 1.05rem;">🚍 Bus ${bus.bus_number}</strong><br>
+              <span style="color: #475569;">Línea:</span> ${bus.line_name || 'General'}<br>
+              <span style="color: #475569;">Chofer:</span> ${bus.driver_name || 'No especificado'}<br>
+              <span style="color: #475569;">Hora Salida:</span> ${formatTimeOnly(bus.start_time)}<br>
+              <span style="color: #475569;">Tiempo en Ruta:</span> <strong>${bus.duration_formatted}</strong><br>
+              <span style="color: #475569;">Velocidad:</span> <strong>${(bus.last_speed || 0).toFixed(1)} km/h</strong><br>
+              <span style="color: #475569;">Distancia:</span> ${(bus.total_distance_km || 0).toFixed(2)} km<br>
+              <div style="margin-top: 8px;">
+                <a href="/itinerario/${bus.id}" style="color: #2563eb; font-weight: 600; text-decoration: none;">Ver Trazado Completo →</a>
+              </div>
+            </div>
+          `;
+
+          if (activeBusMarkers[bus.id]) {
+            activeBusMarkers[bus.id].setLatLng(pos);
+            activeBusMarkers[bus.id].setPopupContent(popupContent);
+          } else {
+            const customIcon = L.divIcon({
+              className: 'bus-pin-marker',
+              html: `
+                <div style="background:#2563eb; color:white; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.3rem; border:2px solid white; box-shadow:0 3px 10px rgba(0,0,0,0.5);">
+                  🚍
+                </div>
+                <div style="background:rgba(15,23,42,0.9); color:#fff; font-size:0.75rem; font-weight:700; border-radius:4px; padding:1px 6px; margin-top:2px; white-space:nowrap; border:1px solid #3b82f6; text-align:center;">
+                  ${bus.bus_number}
+                </div>
+              `,
+              iconSize: [38, 56],
+              iconAnchor: [19, 28]
+            });
+
+            const marker = L.marker(pos, { icon: customIcon }).addTo(adminMap).bindPopup(popupContent);
+            activeBusMarkers[bus.id] = marker;
+          }
+        }
+      }
+
+      if (fitBounds && bounds.length > 0) {
+        adminMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      }
+
+    } catch (e) {
+      console.warn("Error cargando buses activos:", e);
+    }
+  }
+
+  // Cargar lista histórica de servicios
+  async function fetchServicesList() {
+    try {
+      const resp = await fetch("/api/services?limit=100");
+      const data = await resp.json();
+      allServicesCache = data.services || [];
+      renderServicesTable(allServicesCache);
+      updateKPIs(allServicesCache);
+    } catch (e) {
+      console.warn("Error cargando lista de servicios:", e);
+    }
+  }
+
+  function renderServicesTable(services) {
+    const tbody = document.getElementById("servicesTableBody");
+    if (!services || services.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+            No se han registrado itinerarios aún. Escanea el <strong>QR de Salida</strong> con un celular para iniciar el primer servicio.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = services.map(s => {
+      let badge = '';
+      if (s.status === 'active') badge = '<span class="badge badge-active">🟢 En Ruta</span>';
+      else if (s.status === 'completed') badge = '<span class="badge badge-completed">🏁 Llegó</span>';
+      else badge = '<span class="badge badge-cancelled">❌ Cancelado</span>';
+
+      const distance = (s.total_distance_km || 0).toFixed(2);
+      const avgSpeed = (s.avg_speed_kmh || 0).toFixed(1);
+
+      return `
+        <tr>
+          <td>${badge}</td>
+          <td><strong style="color: #60a5fa; font-size: 1.05rem;">${s.bus_number}</strong></td>
+          <td>
+            <div style="font-weight: 600;">${s.line_name || 'Línea'}</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">${s.driver_name || 'Chofer'}</div>
+          </td>
+          <td>
+            <div style="font-weight: 500;">${formatTimeOnly(s.start_time)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${formatDateOnly(s.start_time)}</div>
+          </td>
+          <td>
+            <div style="font-weight: 500;">${formatTimeOnly(s.end_time)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${s.end_time ? formatDateOnly(s.end_time) : 'En tránsito'}</div>
+          </td>
+          <td><strong style="color: #34d399;">${s.duration_formatted || '-'}</strong></td>
+          <td><strong>${distance} km</strong></td>
+          <td>${avgSpeed} km/h</td>
+          <td><span style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">${s.points_count || 0} pts</span></td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: 0.4rem; justify-content: flex-end; align-items: center;">
+              <!-- Botón Ver Trazado -->
+              <a href="/itinerario/${s.id}" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Ver trazado en mapa interactivo">
+                <i data-lucide="map" style="width: 14px; height: 14px;"></i>
+                <span>Ver</span>
+              </a>
+
+              <!-- Botón Descargar Shapefile -->
+              <a href="/api/services/${s.id}/shapefile" class="btn btn-success" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar ESRI Shapefile (.zip: .shp, .shx, .dbf, .prj)">
+                <i data-lucide="file-archive" style="width: 14px; height: 14px;"></i>
+                <span>.SHP</span>
+              </a>
+
+              <!-- Botón Descargar GeoJSON -->
+              <a href="/api/services/${s.id}/geojson" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar GeoJSON">
+                <span>GeoJSON</span>
+              </a>
+
+              <!-- Botón Descargar KML -->
+              <a href="/api/services/${s.id}/kml" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar para Google Earth (KML)">
+                <span>KML</span>
+              </a>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function updateKPIs(services) {
+    const completed = services.filter(s => s.status === 'completed');
+    document.getElementById("kpiCompletedServices").innerText = completed.length;
+
+    const totalKm = services.reduce((acc, s) => acc + (s.total_distance_km || 0), 0);
+    document.getElementById("kpiTotalKm").innerText = totalKm.toFixed(1) + " km";
+
+    if (completed.length > 0) {
+      const avgSec = completed.reduce((acc, s) => acc + (s.total_duration_sec || 0), 0) / completed.length;
+      const avgMin = Math.round(avgSec / 60);
+      document.getElementById("kpiAvgDuration").innerText = `${avgMin} min`;
+    }
+  }
+
+  function filterServicesTable() {
+    const busQuery = document.getElementById("filterBus").value.trim().toLowerCase();
+    const statusQuery = document.getElementById("filterStatus").value.trim();
+
+    const filtered = allServicesCache.filter(s => {
+      const matchBus = !busQuery || (s.bus_number && s.bus_number.toLowerCase().includes(busQuery));
+      const matchStatus = !statusQuery || (s.status === statusQuery);
+      return matchBus && matchStatus;
+    });
+
+    renderServicesTable(filtered);
+  }
+
+  // Generador de simulación rápida para probar el sistema inmediatamente
+  async function generateSimulatedRoute() {
+    const busNum = prompt("Ingrese el número de bus para la simulación demo:", "Bus " + Math.floor(100 + Math.random() * 900));
+    if (!busNum) return;
+
+    // Ruta simulada entre dos terminales
+    const centerLat = -25.2950;
+    const centerLon = -57.6350;
+    const steps = 25;
+    
+    // 1. Iniciar servicio
+    const startResp = await fetch("/api/services/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bus_number: busNum,
+        driver_name: "Chofer Simulado",
+        line_name: "Línea 23 - Troncal",
+        origin_name: "Terminal Asunción",
+        initial_location: {
+          latitude: centerLat,
+          longitude: centerLon,
+          speed_kmh: 0.0,
+          accuracy: 5.0,
+          timestamp: new Date(Date.now() - (steps * 30000)).toISOString()
+        }
+      })
+    });
+    const sData = await startResp.json();
+    const serviceId = sData.service_id;
+
+    // 2. Generar trayecto GPS
+    const points = [];
+    let curLat = centerLat;
+    let curLon = centerLon;
+    for (let i = 1; i <= steps; i++) {
+      curLat += (Math.random() - 0.35) * 0.003;
+      curLon += (Math.random() - 0.2) * 0.004;
+      const speed = 25 + Math.random() * 25;
+      points.push({
+        latitude: curLat,
+        longitude: curLon,
+        altitude: 85 + Math.random() * 10,
+        speed_kmh: speed,
+        accuracy: 4.5,
+        heading: 45.0,
+        timestamp: new Date(Date.now() - ((steps - i) * 30000)).toISOString()
+      });
+    }
+
+    await fetch("/api/services/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service_id: serviceId,
+        points: points
+      })
+    });
+
+    // 3. Finalizar servicio
+    await fetch("/api/services/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service_id: serviceId,
+        destination_name: "Terminal San Lorenzo",
+        final_location: points[points.length - 1],
+        timestamp: new Date().toISOString()
+      })
+    });
+
+    alert(`¡Recorrido simulado para el ${busNum} generado con éxito!\nPuedes descargar el Shapefile inmediatamente o verlo en el mapa.`);
+    loadDashboardData();
+  }
+
+  function formatTimeOnly(isoString) {
+    if (!isoString) return "-";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch(e) { return isoString; }
+  }
+
+  function formatDateOnly(isoString) {
+    if (!isoString) return "";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch(e) { return ""; }
+  }
+</script>
+{% endblock %}
