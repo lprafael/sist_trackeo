@@ -122,8 +122,8 @@
     <!-- PANEL 1: LOGIN DE ADMINISTRADOR                -->
     <!-- ============================================== -->
     <div id="panelAdmin">
-      <form action="/auth/login-admin" method="POST">
-        <input type="hidden" name="next" value="{{ next or '/admin' }}">
+      <form action="{{ base_path }}/auth/login-admin" method="POST">
+        <input type="hidden" name="next" value="{{ next or (base_path + '/admin') }}">
         
         <div class="form-group">
           <label class="form-label" for="username">Usuario Administrador</label>
@@ -149,8 +149,8 @@
     <!-- PANEL 2: LOGIN DE CHOFER CON PIN / LEGAJO      -->
     <!-- ============================================== -->
     <div id="panelDriver" style="display: none;">
-      <form action="/auth/login-driver" method="POST">
-        <input type="hidden" name="next" value="{{ next or '/driver' }}">
+      <form action="{{ base_path }}/auth/login-driver" method="POST">
+        <input type="hidden" name="next" value="{{ next or (base_path + '/driver') }}">
 
         <div class="form-group">
           <label class="form-label" for="pin_code">Código de Chofer / PIN de Legajo</label>
@@ -183,7 +183,7 @@
     </div>
 
     {% if google_configured %}
-      <a href="/auth/google/login?state={{ next or '/admin' }}" class="google-btn">
+      <a href="{{ base_path }}/auth/google/login?state={{ next or (base_path + '/admin') }}" class="google-btn">
         <svg width="20" height="20" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>

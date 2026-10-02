@@ -22,16 +22,19 @@ def get_lan_ip():
 
 if __name__ == "__main__":
     lan_ip = get_lan_ip()
-    port = 8000
+    port = int(os.getenv("PORT", 8014))
+    base_path = os.getenv("BASE_PATH", "")
     
     print("\n" + "=" * 65)
     print(" >>> SISTEMA DE TRACKEO DE ITINERARIOS Y GENERADOR DE SHAPES <<<")
     print("=" * 65)
     print(f" Servidor iniciado en puerto {port}")
-    print(f"  * Panel de Administracion : http://localhost:{port}/admin")
-    print(f"  * Acceso desde Movil / LAN: http://{lan_ip}:{port}/admin")
-    print(f"  * Impresion de Codigos QR : http://{lan_ip}:{port}/qrs")
-    print(f"  * WebApp de Chofer (Movil): http://{lan_ip}:{port}/driver")
+    if base_path:
+        print(f"  * Ruta base configurada   : {base_path}")
+    print(f"  * Panel de Monitoreo      : http://localhost:{port}{base_path}/admin")
+    print(f"  * Acceso desde Movil / LAN: http://{lan_ip}:{port}{base_path}/admin")
+    print(f"  * Impresion de Codigos QR : http://{lan_ip}:{port}{base_path}/qrs")
+    print(f"  * WebApp de Chofer (Movil): http://{lan_ip}:{port}{base_path}/driver")
     print("=" * 65 + "\n")
     
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)

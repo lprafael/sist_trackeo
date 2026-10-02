@@ -72,6 +72,29 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 COOKIE_NAME = "trackeo_session"
 
+# Usuario por defecto para acceso público libre sin contraseña
+DEFAULT_ADMIN_USER = {
+    "uid": "usr_admin_public",
+    "role": "admin",
+    "name": "Administrador",
+    "email": "admin@mopc.gov.py",
+    "avatar": "",
+    "pin": ""
+}
+
+def get_base_path(request: Request) -> str:
+    """Detecta el prefijo base de URL para soportar subrutas como /monitoreo_vmt/trackeo o /trackeo"""
+    prefix = request.headers.get("x-forwarded-prefix", "").rstrip("/")
+    if prefix:
+        return prefix
+    env_prefix = os.getenv("BASE_PATH", "").rstrip("/")
+    if env_prefix:
+        return env_prefix
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    if root_path:
+        return root_path
+    return ""
+
 def get_lan_ip() -> str:
     """Detecta la dirección IP de la máquina en la red local (para generar QRs escaneables por móviles)"""
     try:
@@ -84,20 +107,39 @@ def get_lan_ip() -> str:
         return "127.0.0.1"
 
 def get_current_user(request: Request) -> Optional[dict]:
-    """Obtiene el usuario autenticado a partir de la cookie de sesión o encabezado Bearer"""
+    """Obtiene el usuario autenticado a partir de la cookie de sesión o encabezado Bearer.
+    Si no hay sesión iniciada, asigna automáticamente el perfil de Administrador para acceso libre sin contraseña."""
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         auth_header = request.headers.get("authorization")
         if auth_header and auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
-    return decode_session_token(token)
+    user = decode_session_token(token)
+    if user:
+        return user
+    # Modo acceso libre sin contraseña
+    return DEFAULT_ADMIN_USER
 
 def require_admin_auth(request: Request) -> Optional[dict]:
-    """Verifica si el usuario es administrador. Si no, retorna None para redirigir a /login"""
-    user = get_current_user(request)
-    if not user or user.get("role") != "admin":
-        return None
-    return user
+    """Verifica si el usuario es administrador. En modo de acceso libre, siempre retorna el usuario activo."""
+    return get_current_user(request)
+
+def render_template(request: Request, name: str, context: Optional[dict] = None, status_code: int = 200):
+    """Renderiza una plantilla Jinja2 inyectando automáticamente base_path, user y lan_ip"""
+    ctx = dict(context) if context else {}
+    base_path = get_base_path(request)
+    ctx["base_path"] = base_path
+    ctx["request"] = request
+    if "user" not in ctx:
+        ctx["user"] = get_current_user(request)
+    if "lan_ip" not in ctx:
+        ctx["lan_ip"] = get_lan_ip()
+    return templates.TemplateResponse(
+        request=request,
+        name=name,
+        context=ctx,
+        status_code=status_code
+    )
 
 
 # ==========================================
@@ -105,21 +147,16 @@ def require_admin_auth(request: Request) -> Optional[dict]:
 # ==========================================
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, next: str = "/admin", error: Optional[str] = None):
-    user = get_current_user(request)
-    if user:
-        # Ya está autenticado
-        target = next if next else ("/admin" if user.get("role") == "admin" else "/driver")
-        return RedirectResponse(url=target, status_code=status.HTTP_302_FOUND)
-
-    return templates.TemplateResponse(
-        request=request,
-        name="login.html",
-        context={
-            "next": next,
+async def login_page(request: Request, next: Optional[str] = None, error: Optional[str] = None):
+    base_path = get_base_path(request)
+    target = next if next else f"{base_path}/admin"
+    return render_template(
+        request,
+        "login.html",
+        {
+            "next": target,
             "error": error,
             "google_configured": is_google_oauth_configured(),
-            "lan_ip": get_lan_ip(),
             "user": None
         }
     )
@@ -129,11 +166,13 @@ async def login_admin(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    next: str = Form("/admin")
+    next: Optional[str] = Form(None)
 ):
     """Inicio de sesión local para administradores"""
     clean_user = username.strip()
     clean_pass = password.strip()
+    base_path = get_base_path(request)
+    target_next = next if next else f"{base_path}/admin"
     
     auth_ok = False
     admin_name = "Administrador Principal"
@@ -153,14 +192,13 @@ async def login_admin(
             auth_ok = True
 
     if not auth_ok:
-        return templates.TemplateResponse(
-            request=request,
-            name="login.html",
-            context={
-                "next": next,
+        return render_template(
+            request,
+            "login.html",
+            {
+                "next": target_next,
                 "error": "Usuario o contraseña de administrador incorrectos.",
                 "google_configured": is_google_oauth_configured(),
-                "lan_ip": get_lan_ip(),
                 "user": None
             }
         )
@@ -172,7 +210,7 @@ async def login_admin(
         email="admin@flotabuses.com"
     )
 
-    resp = RedirectResponse(url=next or "/admin", status_code=status.HTTP_302_FOUND)
+    resp = RedirectResponse(url=target_next, status_code=status.HTTP_302_FOUND)
     resp.set_cookie(COOKIE_NAME, token, httponly=True, max_age=14*86400, samesite="lax")
     return resp
 
@@ -180,10 +218,12 @@ async def login_admin(
 async def login_driver(
     request: Request,
     pin_code: str = Form(...),
-    next: str = Form("/driver")
+    next: Optional[str] = Form(None)
 ):
     """Inicio de sesión rápido de chofer por código de legajo / PIN"""
     clean_pin = pin_code.strip()
+    base_path = get_base_path(request)
+    target_next = next if next else f"{base_path}/driver"
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -191,14 +231,13 @@ async def login_driver(
         driver_row = cursor.fetchone()
 
     if not driver_row:
-        return templates.TemplateResponse(
-            request=request,
-            name="login.html",
-            context={
-                "next": next,
+        return render_template(
+            request,
+            "login.html",
+            {
+                "next": target_next,
                 "error": f"No se encontró ningún chofer con el código o PIN '{clean_pin}'. Verifique su número de legajo.",
                 "google_configured": is_google_oauth_configured(),
-                "lan_ip": get_lan_ip(),
                 "user": None
             }
         )
@@ -211,31 +250,35 @@ async def login_driver(
         pin_code=driver_row["pin_code"]
     )
 
-    resp = RedirectResponse(url=next or "/driver", status_code=status.HTTP_302_FOUND)
+    resp = RedirectResponse(url=target_next, status_code=status.HTTP_302_FOUND)
     resp.set_cookie(COOKIE_NAME, token, httponly=True, max_age=14*86400, samesite="lax")
     return resp
 
 @app.get("/auth/google/login")
-async def google_login(request: Request, state: str = "/admin"):
+async def google_login(request: Request, state: Optional[str] = None):
     """Inicia el flujo de autenticación con Google OAuth"""
+    base_path = get_base_path(request)
+    target_state = state or f"{base_path}/admin"
     if not is_google_oauth_configured():
-        return RedirectResponse(url="/login?error=Google+OAuth+no+esta+configurado+en+el+servidor", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(url=f"{base_path}/login?error=Google+OAuth+no+esta+configurado+en+el+servidor", status_code=status.HTTP_302_FOUND)
     
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/auth/google/callback"
-    google_url = get_google_auth_url(redirect_uri, state=state)
+    redirect_uri = f"{str(request.base_url).rstrip('/')}{base_path}/auth/google/callback"
+    google_url = get_google_auth_url(redirect_uri, state=target_state)
     return RedirectResponse(url=google_url, status_code=status.HTTP_302_FOUND)
 
 @app.get("/auth/google/callback")
-async def google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = "/admin", error: Optional[str] = None):
+async def google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     """Recibe la respuesta de Google OAuth y crea la sesión del usuario"""
+    base_path = get_base_path(request)
+    dest_default = f"{base_path}/admin"
     if error or not code:
-        return RedirectResponse(url=f"/login?error=Inicio+con+Google+cancelado+o+fallido", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(url=f"{base_path}/login?error=Inicio+con+Google+cancelado+o+fallido", status_code=status.HTTP_302_FOUND)
 
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/auth/google/callback"
+    redirect_uri = f"{str(request.base_url).rstrip('/')}{base_path}/auth/google/callback"
     google_user = await exchange_google_code(code, redirect_uri)
     
     if not google_user or "email" not in google_user:
-        return RedirectResponse(url="/login?error=No+se+pudo+obtener+el+perfil+de+Google", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(url=f"{base_path}/login?error=No+se+pudo+obtener+el+perfil+de+Google", status_code=status.HTTP_302_FOUND)
 
     email = google_user["email"]
     name = google_user.get("name") or email.split("@")[0]
@@ -243,7 +286,7 @@ async def google_callback(request: Request, code: Optional[str] = None, state: O
     avatar = google_user.get("picture") or ""
 
     user_id = f"usr_{uuid.uuid4().hex[:8]}"
-    role = "driver" # Por defecto chofer, salvo que sea el admin
+    role = "driver"
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -255,7 +298,6 @@ async def google_callback(request: Request, code: Optional[str] = None, state: O
             role = existing["role"]
             cursor.execute("UPDATE users SET avatar_url = ?, name = ? WHERE id = ?", (avatar, name, user_id))
         else:
-            # Si es el primer usuario o coincide con admin
             if "admin" in email.lower():
                 role = "admin"
             cursor.execute("""
@@ -271,15 +313,17 @@ async def google_callback(request: Request, code: Optional[str] = None, state: O
         avatar_url=avatar
     )
 
-    dest = state if (state and state.startswith("/")) else ("/admin" if role == "admin" else "/driver")
+    dest = state if state else (f"{base_path}/admin" if role == "admin" else f"{base_path}/driver")
     resp = RedirectResponse(url=dest, status_code=status.HTTP_302_FOUND)
     resp.set_cookie(COOKIE_NAME, token, httponly=True, max_age=14*86400, samesite="lax")
     return resp
 
 @app.get("/logout")
-async def logout(next: str = "/login"):
+async def logout(request: Request, next: Optional[str] = None):
     """Cierra la sesión y borra la cookie"""
-    resp = RedirectResponse(url=next or "/login", status_code=status.HTTP_302_FOUND)
+    base_path = get_base_path(request)
+    dest = next or f"{base_path}/"
+    resp = RedirectResponse(url=dest, status_code=status.HTTP_302_FOUND)
     resp.delete_cookie(COOKIE_NAME)
     return resp
 
@@ -293,22 +337,18 @@ async def get_me(request: Request):
 
 
 # ==========================================
-# RUTAS DE INTERFAZ WEB (HTML)
+# RUTAS DE INTERFAZ WEB (HTML - ACCESO LIBRE)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    user = get_current_user(request)
-    if not user or user.get("role") != "admin":
-        return RedirectResponse(url="/login?next=/admin", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request=request, name="admin.html", context={"page": "admin", "lan_ip": get_lan_ip(), "user": user})
+    """Vista principal: Panel de monitoreo de itinerarios accesible directamente sin contraseña"""
+    return render_template(request, "admin.html", {"page": "admin"})
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_view(request: Request):
-    user = get_current_user(request)
-    if not user or user.get("role") != "admin":
-        return RedirectResponse(url="/login?next=/admin", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request=request, name="admin.html", context={"page": "admin", "lan_ip": get_lan_ip(), "user": user})
+    """Panel de Administración y Monitoreo satelital en vivo"""
+    return render_template(request, "admin.html", {"page": "admin"})
 
 @app.get("/driver", response_class=HTMLResponse)
 async def driver_view(
@@ -318,38 +358,30 @@ async def driver_view(
     terminal: Optional[str] = None
 ):
     """Interfaz móvil para el chofer al escanear QR de salida o llegada"""
-    user = get_current_user(request)
-    return templates.TemplateResponse(
-        request=request,
-        name="driver.html",
-        context={
+    return render_template(
+        request,
+        "driver.html",
+        {
+            "page": "driver",
             "action": action,
             "code": code,
             "terminal": terminal or ("Terminal de Salida" if action == "salida" else "Terminal de Llegada"),
-            "lan_ip": get_lan_ip(),
-            "user": user
         }
     )
+
+@app.get("/qr", include_in_schema=False)
+async def qr_alias(request: Request):
+    base_path = get_base_path(request)
+    return RedirectResponse(url=f"{base_path}/qrs", status_code=status.HTTP_302_FOUND)
 
 @app.get("/qrs", response_class=HTMLResponse)
 async def qrs_view(request: Request):
     """Página para generar e imprimir los códigos QR de Salida y Llegada"""
-    user = get_current_user(request)
-    if not user or user.get("role") != "admin":
-        return RedirectResponse(url="/login?next=/qrs", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(
-        request=request,
-        name="qrs.html",
-        context={"page": "qrs", "lan_ip": get_lan_ip(), "user": user}
-    )
+    return render_template(request, "qrs.html", {"page": "qrs"})
 
 @app.get("/itinerario/{service_id}", response_class=HTMLResponse)
 async def itinerary_detail_view(request: Request, service_id: str):
     """Página interactiva de detalle de un itinerario con visor de shape y métricas"""
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url=f"/login?next=/itinerario/{service_id}", status_code=status.HTTP_302_FOUND)
-
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM services WHERE id = ?", (service_id,))
@@ -363,14 +395,13 @@ async def itinerary_detail_view(request: Request, service_id: str):
         cursor.execute("SELECT COUNT(*) as count FROM gps_points WHERE service_id = ?", (service_id,))
         p_count = cursor.fetchone()["count"]
 
-    return templates.TemplateResponse(
-        request=request,
-        name="detail.html",
-        context={
+    return render_template(
+        request,
+        "detail.html",
+        {
+            "page": "detail",
             "service": service_dict,
             "points_count": p_count,
-            "lan_ip": get_lan_ip(),
-            "user": user
         }
     )
 
@@ -383,13 +414,16 @@ async def itinerary_detail_view(request: Request, service_id: str):
 async def server_info(request: Request):
     """Retorna información del servidor e IP de red local para configurar la base de los QRs"""
     lan_ip = get_lan_ip()
-    port = request.url.port or 8000
-    host_header = request.headers.get("host")
+    port = request.url.port or 8014
+    base_path = get_base_path(request)
+    host_header = request.headers.get("host") or f"{lan_ip}:{port}"
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     return {
         "lan_ip": lan_ip,
         "port": port,
-        "default_base_url": f"http://{lan_ip}:{port}",
-        "current_request_url": str(request.base_url).rstrip("/")
+        "base_path": base_path,
+        "default_base_url": f"{proto}://{host_header}{base_path}",
+        "current_request_url": f"{proto}://{host_header}{base_path}"
     }
 
 @app.post("/api/services/start")

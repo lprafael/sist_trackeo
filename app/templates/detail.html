@@ -41,7 +41,7 @@
 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
   <div>
     <div style="display: flex; align-items: center; gap: 0.75rem;">
-      <a href="/admin" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+      <a href="{{ base_path }}/admin" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
         <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
         <span>Volver al Panel</span>
       </a>
@@ -63,20 +63,20 @@
 
   <!-- Botones de Descarga de Shapes -->
   <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-    <a href="/api/services/{{ service.id }}/shapefile" class="btn btn-success" title="Descargar paquete ESRI Shapefile con proyección WGS84">
+    <a href="{{ base_path }}/api/services/{{ service.id }}/shapefile" class="btn btn-success" title="Descargar paquete ESRI Shapefile con proyección WGS84">
       <i data-lucide="file-archive" style="width: 18px; height: 18px;"></i>
       <span>Descargar Shapefile (.ZIP)</span>
     </a>
-    <a href="/api/services/{{ service.id }}/geojson" class="btn btn-secondary" title="Descargar GeoJSON">
+    <a href="{{ base_path }}/api/services/{{ service.id }}/geojson" class="btn btn-secondary" title="Descargar GeoJSON">
       <span>GeoJSON</span>
     </a>
-    <a href="/api/services/{{ service.id }}/kml" class="btn btn-secondary" title="Descargar KML Google Earth">
+    <a href="{{ base_path }}/api/services/{{ service.id }}/kml" class="btn btn-secondary" title="Descargar KML Google Earth">
       <span>KML</span>
     </a>
-    <a href="/api/services/{{ service.id }}/gpx" class="btn btn-secondary" title="Descargar GPX">
+    <a href="{{ base_path }}/api/services/{{ service.id }}/gpx" class="btn btn-secondary" title="Descargar GPX">
       <span>GPX</span>
     </a>
-    <a href="/api/services/{{ service.id }}/csv" class="btn btn-secondary" title="Descargar CSV">
+    <a href="{{ base_path }}/api/services/{{ service.id }}/csv" class="btn btn-secondary" title="Descargar CSV">
       <span>CSV</span>
     </a>
   </div>
@@ -176,7 +176,7 @@
       </div>
 
       <div style="margin-top: 1.5rem;">
-        <a href="/api/services/{{ service.id }}/shapefile" class="btn btn-success btn-block btn-lg" style="text-decoration: none;">
+        <a href="{{ base_path }}/api/services/{{ service.id }}/shapefile" class="btn btn-success btn-block btn-lg" style="text-decoration: none;">
           <i data-lucide="download" style="width: 20px; height: 20px;"></i>
           <span>DESCARGAR SHAPEFILE</span>
         </a>
@@ -217,7 +217,7 @@
 
   async function loadItineraryGeometry() {
     try {
-      const resp = await fetch(`/api/services/${SERVICE_ID}`);
+      const resp = await fetch(`${window.BASE_PATH}/api/services/${SERVICE_ID}`);
       const data = await resp.json();
       const points = data.points || [];
 

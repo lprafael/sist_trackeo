@@ -18,7 +18,16 @@
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <!-- Estilos Custom -->
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/style.css">
+  
+  <!-- Inyección de Prefijo Base de URL para Subrutas (/monitoreo_vmt/trackeo) -->
+  <script>
+    window.BASE_PATH = "{{ base_path }}";
+    if (!window.BASE_PATH && window.location.pathname.includes('/trackeo')) {
+      const m = window.location.pathname.match(/^(\/(?:monitoreo_vmt\/)?trackeo)/);
+      window.BASE_PATH = m ? m[1] : '';
+    }
+  </script>
   
   {% block extra_head %}{% endblock %}
 </head>
@@ -26,7 +35,7 @@
 
   <!-- Navegación Superior -->
   <header class="navbar">
-    <a href="/admin" class="nav-brand">
+    <a href="{{ base_path }}/" class="nav-brand">
       <div class="nav-logo-icon">🚍</div>
       <div>
         <div style="font-size: 1.05rem; font-weight: 800; line-height: 1.1;">TrackItinerarios</div>
@@ -36,19 +45,19 @@
 
     <ul class="nav-links">
       <li>
-        <a href="/admin" class="nav-link {% if page == 'admin' %}active{% endif %}">
+        <a href="{{ base_path }}/admin" class="nav-link {% if page == 'admin' %}active{% endif %}">
           <i data-lucide="layout-dashboard" style="width: 17px; height: 17px;"></i>
           <span>Monitoreo & Itinerarios</span>
         </a>
       </li>
       <li>
-        <a href="/qrs" class="nav-link {% if page == 'qrs' %}active{% endif %}">
+        <a href="{{ base_path }}/qrs" class="nav-link {% if page == 'qrs' %}active{% endif %}">
           <i data-lucide="qr-code" style="width: 17px; height: 17px;"></i>
           <span>Códigos QR</span>
         </a>
       </li>
       <li>
-        <a href="/driver" class="nav-link {% if page == 'driver' %}active{% endif %}" target="_blank">
+        <a href="{{ base_path }}/driver" class="nav-link {% if page == 'driver' %}active{% endif %}" target="_blank">
           <i data-lucide="smartphone" style="width: 17px; height: 17px;"></i>
           <span>Modo Chofer (Móvil)</span>
         </a>
@@ -61,7 +70,7 @@
         <span>IP: {{ lan_ip }}</span>
       </div>
 
-      {% if user %}
+      {% if user and user.uid != 'usr_admin_public' %}
         <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); border: 1px solid var(--border-color); padding: 0.3rem 0.65rem; border-radius: var(--radius-sm);">
           {% if user.avatar %}
             <img src="{{ user.avatar }}" alt="{{ user.name }}" style="width: 24px; height: 24px; border-radius: 50%;">
@@ -76,15 +85,20 @@
               {% if user.role == 'admin' %}Administrador{% else %}Chofer ({{ user.pin or 'App' }}){% endif %}
             </div>
           </div>
-          <a href="/logout" title="Cerrar sesión" style="color: #f87171; text-decoration: none; margin-left: 0.35rem; display: flex; align-items: center;">
+          <a href="{{ base_path }}/logout" title="Cerrar sesión" style="color: #f87171; text-decoration: none; margin-left: 0.35rem; display: flex; align-items: center;">
             <i data-lucide="log-out" style="width: 15px; height: 15px;"></i>
           </a>
         </div>
       {% else %}
-        <a href="/login" class="btn btn-secondary no-print" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
-          <i data-lucide="log-in" style="width: 14px; height: 14px;"></i>
-          <span>Ingresar</span>
-        </a>
+        <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.3rem 0.65rem; border-radius: var(--radius-sm);">
+          <div style="width: 22px; height: 22px; border-radius: 50%; background: #10b981; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: white;">
+            ✓
+          </div>
+          <div style="font-size: 0.82rem; font-weight: 600; line-height: 1.1;">
+            <div style="color: #34d399;">Acceso Libre</div>
+            <div style="font-size: 0.66rem; color: var(--text-muted);">Sin Contraseña</div>
+          </div>
+        </div>
       {% endif %}
     </div>
   </header>

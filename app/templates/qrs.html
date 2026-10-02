@@ -124,14 +124,22 @@
         id="inputServerBase" 
         class="form-input" 
         style="flex: 1; min-width: 280px; font-weight: 600;" 
-        value="http://{{ lan_ip }}:8000"
+        value=""
       >
       <button class="btn btn-secondary" onclick="updateQRs()">
         <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
         <span>Actualizar Códigos</span>
       </button>
+      <button class="btn btn-secondary" onclick="setCurrentDomain()" title="Usar la URL y dominio del navegador">
+        <i data-lucide="globe" style="width: 16px; height: 16px;"></i>
+        <span>Dominio Actual</span>
+      </button>
+      <button class="btn btn-secondary" onclick="setLanIp()" title="Usar IP local para pruebas WiFi">
+        <i data-lucide="wifi" style="width: 16px; height: 16px;"></i>
+        <span>IP WiFi (LAN)</span>
+      </button>
       <button class="btn btn-secondary" onclick="setLocalhost()">
-        <span>Localhost (Pruebas PC)</span>
+        <span>Localhost</span>
       </button>
     </div>
   </div>
@@ -231,20 +239,38 @@
 {% block extra_scripts %}
 <script>
   document.addEventListener("DOMContentLoaded", () => {
+    // Si estamos en un dominio web (ej. sistemas.mopc.gov.py/monitoreo_vmt/trackeo), usarlo por defecto
+    const currentBase = (window.location.origin && !window.location.origin.startsWith("file:")) 
+      ? (window.location.origin + (window.BASE_PATH || ""))
+      : "http://{{ lan_ip }}:8014";
+    document.getElementById("inputServerBase").value = currentBase;
     updateQRs();
   });
 
+  function setCurrentDomain() {
+    const currentBase = window.location.origin + (window.BASE_PATH || "");
+    document.getElementById("inputServerBase").value = currentBase;
+    updateQRs();
+  }
+
+  function setLanIp() {
+    document.getElementById("inputServerBase").value = "http://{{ lan_ip }}:8014" + (window.BASE_PATH || "");
+    updateQRs();
+  }
+
   function setLocalhost() {
-    document.getElementById("inputServerBase").value = "http://localhost:8000";
+    document.getElementById("inputServerBase").value = "http://localhost:8014" + (window.BASE_PATH || "");
     updateQRs();
   }
 
   function updateQRs() {
-    const baseUrl = document.getElementById("inputServerBase").value.trim().replace(/\/$/, "");
+    let baseUrl = document.getElementById("inputServerBase").value.trim().replace(/\/+$/, "");
+    baseUrl = baseUrl.replace(/\/(qrs|admin|driver|login)\/?$/i, "").replace(/\/+$/, "");
+    document.getElementById("inputServerBase").value = baseUrl;
     
     // URL de Salida
     const urlSalida = `${baseUrl}/driver?action=salida&code=SALIDA_PRINCIPAL&terminal=Terminal+de+Salida`;
-    const qrSalidaApi = `/api/qr?data=${encodeURIComponent(urlSalida)}&format=svg&size=10`;
+    const qrSalidaApi = `${window.BASE_PATH}/api/qr?data=${encodeURIComponent(urlSalida)}&format=svg&size=10`;
     
     document.getElementById("qrImgSalida").src = qrSalidaApi;
     document.getElementById("btnTestSalida").href = urlSalida;
@@ -252,7 +278,7 @@
 
     // URL de Llegada
     const urlLlegada = `${baseUrl}/driver?action=llegada&code=LLEGADA_PRINCIPAL&terminal=Terminal+de+Llegada`;
-    const qrLlegadaApi = `/api/qr?data=${encodeURIComponent(urlLlegada)}&format=svg&size=10`;
+    const qrLlegadaApi = `${window.BASE_PATH}/api/qr?data=${encodeURIComponent(urlLlegada)}&format=svg&size=10`;
 
     document.getElementById("qrImgLlegada").src = qrLlegadaApi;
     document.getElementById("btnTestLlegada").href = urlLlegada;

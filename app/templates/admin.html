@@ -18,12 +18,12 @@
       <span>Simular Recorrido Demo</span>
     </button>
 
-    <a href="/qrs" class="btn btn-secondary">
+    <a href="{{ base_path }}/qrs" class="btn btn-secondary">
       <i data-lucide="qr-code" style="width: 17px; height: 17px;"></i>
       <span>Ver QRs de Salida/Llegada</span>
     </a>
 
-    <a href="/driver" target="_blank" class="btn btn-primary">
+    <a href="{{ base_path }}/driver" target="_blank" class="btn btn-primary">
       <i data-lucide="smartphone" style="width: 17px; height: 17px;"></i>
       <span>Abrir Modo Chofer</span>
     </a>
@@ -190,7 +190,7 @@
   // Cargar buses activos para el mapa
   async function fetchActiveServices(fitBounds = false) {
     try {
-      const resp = await fetch("/api/services/active");
+      const resp = await fetch(`${window.BASE_PATH}/api/services/active`);
       const data = await resp.json();
       const activeBuses = data.active_services || [];
 
@@ -227,7 +227,7 @@
               <span style="color: #475569;">Velocidad:</span> <strong>${(bus.last_speed || 0).toFixed(1)} km/h</strong><br>
               <span style="color: #475569;">Distancia:</span> ${(bus.total_distance_km || 0).toFixed(2)} km<br>
               <div style="margin-top: 8px;">
-                <a href="/itinerario/${bus.id}" style="color: #2563eb; font-weight: 600; text-decoration: none;">Ver Trazado Completo →</a>
+                <a href="${window.BASE_PATH}/itinerario/${bus.id}" style="color: #2563eb; font-weight: 600; text-decoration: none;">Ver Trazado Completo →</a>
               </div>
             </div>
           `;
@@ -268,7 +268,7 @@
   // Cargar lista histórica de servicios
   async function fetchServicesList() {
     try {
-      const resp = await fetch("/api/services?limit=100");
+      const resp = await fetch(`${window.BASE_PATH}/api/services?limit=100`);
       const data = await resp.json();
       allServicesCache = data.services || [];
       renderServicesTable(allServicesCache);
@@ -323,24 +323,24 @@
           <td style="text-align: right;">
             <div style="display: flex; gap: 0.4rem; justify-content: flex-end; align-items: center;">
               <!-- Botón Ver Trazado -->
-              <a href="/itinerario/${s.id}" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Ver trazado en mapa interactivo">
+              <a href="${window.BASE_PATH}/itinerario/${s.id}" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Ver trazado en mapa interactivo">
                 <i data-lucide="map" style="width: 14px; height: 14px;"></i>
                 <span>Ver</span>
               </a>
 
               <!-- Botón Descargar Shapefile -->
-              <a href="/api/services/${s.id}/shapefile" class="btn btn-success" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar ESRI Shapefile (.zip: .shp, .shx, .dbf, .prj)">
+              <a href="${window.BASE_PATH}/api/services/${s.id}/shapefile" class="btn btn-success" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar ESRI Shapefile (.zip: .shp, .shx, .dbf, .prj)">
                 <i data-lucide="file-archive" style="width: 14px; height: 14px;"></i>
                 <span>.SHP</span>
               </a>
 
               <!-- Botón Descargar GeoJSON -->
-              <a href="/api/services/${s.id}/geojson" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar GeoJSON">
+              <a href="${window.BASE_PATH}/api/services/${s.id}/geojson" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar GeoJSON">
                 <span>GeoJSON</span>
               </a>
 
               <!-- Botón Descargar KML -->
-              <a href="/api/services/${s.id}/kml" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar para Google Earth (KML)">
+              <a href="${window.BASE_PATH}/api/services/${s.id}/kml" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.82rem;" title="Descargar para Google Earth (KML)">
                 <span>KML</span>
               </a>
             </div>
@@ -390,7 +390,7 @@
     const steps = 25;
     
     // 1. Iniciar servicio
-    const startResp = await fetch("/api/services/start", {
+    const startResp = await fetch(`${window.BASE_PATH}/api/services/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -429,7 +429,7 @@
       });
     }
 
-    await fetch("/api/services/telemetry", {
+    await fetch(`${window.BASE_PATH}/api/services/telemetry`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -439,7 +439,7 @@
     });
 
     // 3. Finalizar servicio
-    await fetch("/api/services/finish", {
+    await fetch(`${window.BASE_PATH}/api/services/finish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
